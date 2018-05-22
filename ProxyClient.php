@@ -4,6 +4,7 @@ namespace EFrame\Client;
 
 use GuzzleHttp\Client;
 use GuzzleHttp\Promise;
+use Illuminate\Support\Collection;
 use Psr\Http\Message\UriInterface;
 use Psr\Http\Message\ResponseInterface;
 
@@ -30,15 +31,18 @@ use Psr\Http\Message\ResponseInterface;
  */
 class ProxyClient
 {
+    use Concerns\Authenticatable,
+        Concerns\HasHandlers;
+
     /**
      * @var \Illuminate\Support\Collection
      */
     protected $config;
 
     /**
-     * @var bool
+     * @var Collection
      */
-    protected $auth = true;
+    protected $options;
 
     /**
      * ProxyClient constructor.
@@ -48,6 +52,10 @@ class ProxyClient
     public function __construct(array $config = [])
     {
         $this->config = collect($config);
+
+        $this->refreshOptions();
+
+        $this->boot();
     }
 
     /**
@@ -55,68 +63,108 @@ class ProxyClient
      */
     protected function factory()
     {
-        $config             = $this->config->get('config');
-        $config['base_uri'] = $this->buildUri();
-        $config['auth']     = $this->makeAuth();
+        $options = collect($this->options->all());
 
-        return new Client($config);
+        $this->touch($options);
+
+        return new Client($options->toArray());
     }
 
     /**
-     * @return array
+     * @return mixed
      */
-    protected function makeAuth()
+    protected function getAuthType()
     {
-        if (!$this->auth || is_null($auth_config = $this->config->get('auth_config'))) {
-            return null;
-        }
+        return $this->config->get('auth');
+    }
 
-        return array_merge(
-            array_values($auth_config),
-            [$this->config->get('auth')]
-        );
+    /**
+     * @return mixed
+     */
+    protected function getAuthCredentials()
+    {
+        return $this->config->get('auth_config');
+    }
+
+    /**
+     * The "booting" method of the client.
+     *
+     * @return void
+     */
+    protected function boot()
+    {
+        $this->bootOptions();
+
+        $this->bootTraits();
+    }
+
+    /**
+     * @return void
+     */
+    protected function bootOptions()
+    {
+        $this->options->offsetSet('base_uri', $this->getUri());
+    }
+
+    /**
+     * Boot all of the bootable traits on the cloient.
+     *
+     * @return void
+     */
+    protected function bootTraits()
+    {
+        $class = static::class;
+
+        foreach (class_uses_recursive($class) as $trait) {
+            if (method_exists($class, $method = 'boot'.class_basename($trait))) {
+                forward_static_call([$class, $method]);
+            }
+        }
+    }
+
+    /**
+     * @param Collection $options
+     */
+    protected function touch(Collection $options)
+    {
+        $this->touchTraits($options);
+    }
+
+    /**
+     * @param Collection $options
+     */
+    protected function touchTraits(Collection $options)
+    {
+        $class = static::class;
+
+        foreach (class_uses_recursive($class) as $trait) {
+            if (method_exists($class, $method = 'touch'.class_basename($trait))) {
+                forward_static_call([$class, $method], $options);
+            }
+        }
+    }
+
+    /**
+     * @return void
+     */
+    protected function refreshOptions()
+    {
+        $this->options = collect($this->config->get('config'));
     }
 
     /**
      * @return string
      */
-    protected function buildUri()
+    protected function getUri()
     {
-        $path = $this->config->get('path', '');
-
-        $path = rtrim($path, '/') . '/';
+        $base_uri = rtrim($this->config->get('base_uri'), '/');
+        $path     = ltrim($this->config->get('path'), '/');
 
         foreach ($this->config->get('path_options') as $key => $value) {
-            $mask = "{{$key}}";
-
-            $path = str_replace($mask, $value, $path);
+            $path = str_replace("{{$key}}", $value, $path);
         }
 
-        return sprintf(
-            '%s/%s',
-            rtrim($this->config->get('base_uri'), '/'),
-            ltrim($path, '/')
-        );
-    }
-
-    /**
-     * @return ProxyClient
-     */
-    public function withAuth()
-    {
-        $this->auth = true;
-
-        return $this;
-    }
-
-    /**
-     * @return ProxyClient
-     */
-    public function withoutAuth()
-    {
-        $this->auth = false;
-
-        return $this;
+        return "{$base_uri}/{$path}/";
     }
 
     /**
