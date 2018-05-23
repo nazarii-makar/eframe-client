@@ -16,6 +16,10 @@
             "EFrame\\Client\\": ""
         }
     },
+    "suggest": {
+        "eframe/support" : "Required to use Concrete Client",
+        "illuminate/container" : "Required to use Concrete Client"
+    },
     "config": {
         "sort-packages": true
     },
