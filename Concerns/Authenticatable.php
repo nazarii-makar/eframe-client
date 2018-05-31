@@ -28,7 +28,7 @@ trait Authenticatable
      */
     protected function touchAuthenticatable(Collection $options)
     {
-        if (!$this->auth) {
+        if (!$this->auth || empty($this->getAuthType())) {
             return;
         }
 
